@@ -91,16 +91,37 @@ app.post('/collect', async (req, res) => {
                 messages: [{ role: 'user', content: prompt }],
             }),
         });
-
+        // ... (After orRes.json())
         const orData = await orRes.json();
-        const aiContent = orData.choices?.[0]?.message?.content || '[]';
+        let aiContent = orData.choices?.[0]?.message?.content || '[]';
         
-        // Clean up AI response if it includes markdown
-        const cleanJson = aiContent.replace(/```json|```/g, '').trim();
-        const analysis = JSON.parse(cleanJson);
-
-        console.log('Success!');
-        res.json({ analysis });
+        console.log('Raw AI Response:', aiContent); // Log this to see exactly what Nova sent
+        
+        try {
+            // 1. Remove Markdown code blocks if they exist
+            let cleanJson = aiContent.replace(/```json/g, '')
+                                     .replace(/```/g, '')
+                                     .trim();
+        
+            // 2. Locate the first '[' and last ']' just in case there's extra text
+            const start = cleanJson.indexOf('[');
+            const end = cleanJson.lastIndexOf(']');
+            
+            if (start !== -1 && end !== -1) {
+                cleanJson = cleanJson.substring(start, end + 1);
+            }
+        
+            const analysis = JSON.parse(cleanJson);
+            console.log('Successfully parsed analysis!');
+            res.json({ analysis });
+        
+        } catch (parseError) {
+            console.error('JSON Parse Failed. Raw content was:', aiContent);
+            res.status(500).json({ 
+                error: 'AI returned invalid JSON format', 
+                raw: aiContent 
+            });
+        }
 
     } catch (error) {
         console.error('Global Error:', error.message);
