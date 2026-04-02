@@ -93,6 +93,7 @@ app.post('/collect', async (req, res) => {
         });
         // ... (After orRes.json())
         const orData = await orRes.json();
+        console.log('ordata:',orData); 
         let aiContent = orData.choices?.[0]?.message?.content || '[]';
         
         console.log('Raw AI Response:', aiContent); // Log this to see exactly what Nova sent
