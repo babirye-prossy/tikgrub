@@ -115,7 +115,7 @@ app.get('/comments', async (req, res) => {
 
         res.json({
             comments: pagedComments,
-            stage: pagedComments.length < limit ? 'done' : 'collecting',
+            stage: 'done',
             progress,
             eta: eta > 0 ? eta : 0,
         });
