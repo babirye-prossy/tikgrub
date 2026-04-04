@@ -1,7 +1,9 @@
 import express from 'express';
 import fetch from 'node-fetch';
+
 const app = express();
 app.use(express.json());
+
 const PORT = process.env.PORT || 10000;
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const APIFY_BASE = 'https://api.apify.com/v2';
@@ -59,7 +61,11 @@ app.post('/collect', async (req, res) => {
 
 // STEP 2: Fetch paginated comments
 app.get('/comments', async (req, res) => {
-    const { tiktokUrl, page = 1, limit = 10 } = req.query;
+    const { tiktokUrl } = req.query;
+
+    // ✅ Parse page and limit as integers immediately — avoids string math bugs
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
 
     log('📥', 'GET /comments received', { tiktokUrl, page, limit });
 
@@ -98,6 +104,11 @@ app.get('/comments', async (req, res) => {
 
         log('📦', 'Dataset fetched', { totalItems: items.length });
 
+        // ✅ Log the raw shape of the first item to find the real username field
+        if (items.length > 0) {
+            log('🔬', 'Sample raw item', items[0]);
+        }
+
         const allComments = items
             .map(i => ({ text: i.text, user: i.user?.uniqueId || 'anon' }))
             .filter(c => c.text);
@@ -105,7 +116,7 @@ app.get('/comments', async (req, res) => {
         log('💬', 'Comments after filtering', { count: allComments.length });
 
         const start = (page - 1) * limit;
-        const end = start + parseInt(limit);
+        const end = start + limit;
         const pagedComments = allComments.slice(start, end);
         const progress = Math.min(100, Math.floor((end / allComments.length) * 100));
         const remaining = allComments.length - end;
