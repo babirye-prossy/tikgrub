@@ -104,13 +104,8 @@ app.get('/comments', async (req, res) => {
 
         log('📦', 'Dataset fetched', { totalItems: items.length });
 
-        // ✅ Log the raw shape of the first item to find the real username field
-        if (items.length > 0) {
-            log('🔬', 'Sample raw item', items[0]);
-        }
-
         const allComments = items
-            .map(i => ({ text: i.text, user: i.user?.uniqueId || 'anon' }))
+            .map(i => ({ text: i.text, user: i.uniqueId || 'anon' }))
             .filter(c => c.text);
 
         log('💬', 'Comments after filtering', { count: allComments.length });
