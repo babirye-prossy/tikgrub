@@ -74,6 +74,9 @@ app.get('/comments', async (req, res) => {
         const pagedComments = allComments.slice(start, end);
 
         // Progress estimation
+        if (allComments.length === 0) {
+            return res.json({ comments: [], stage: 'collecting', progress: 0, eta: 30 });
+        }
         const progress = Math.min(100, Math.floor((end / allComments.length) * 100));
         const remaining = allComments.length - end;
         const eta = Math.ceil((remaining / limit) * 5); // 5 sec per page estimate
