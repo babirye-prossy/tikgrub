@@ -20,12 +20,26 @@ app.get('/', (req, res) => {
     res.send('TrendPulse API is running');
 });
 
+// Add this helper above your routes
+async function resolveRedirect(url) {
+    try {
+        const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+        log('🔗', 'Resolved URL', { from: url, to: res.url });
+        return res.url;
+    } catch (err) {
+        log('⚠️', 'Could not resolve redirect, using original URL', { url });
+        return url;
+    }
+}
+
 // STEP 1: Trigger scraping
 app.post('/collect', async (req, res) => {
     const { tiktokUrl } = req.body;
     if (!tiktokUrl) return res.status(400).json({ error: 'URL required' });
 
-    log('📥', 'POST /collect received', { tiktokUrl });
+    // ✅ Resolve short URL to full URL before passing to Apify
+    const resolvedUrl = await resolveRedirect(tiktokUrl);
+    log('📥', 'POST /collect received', { original: tiktokUrl, resolved: resolvedUrl });
 
     try {
         log('🚀', 'Triggering Apify scrape for', tiktokUrl);
@@ -34,7 +48,8 @@ app.post('/collect', async (req, res) => {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ postURLs: [tiktokUrl], commentsPerPost: 100 }),
+                // ✅ Use resolved URL
+                body: JSON.stringify({ postURLs: [resolvedUrl], commentsPerPost: 100 }),
             }
         );
         const runJson = await runRes.json();
