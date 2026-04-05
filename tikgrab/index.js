@@ -24,8 +24,11 @@ app.get('/', (req, res) => {
 async function resolveRedirect(url) {
     try {
         const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
-        log('🔗', 'Resolved URL', { from: url, to: res.url });
-        return res.url;
+        // ✅ Strip query params — Apify only needs the clean video URL
+        const clean = new URL(res.url);
+        clean.search = '';
+        log('🔗', 'Resolved URL', { from: url, to: clean.toString() });
+        return clean.toString();
     } catch (err) {
         log('⚠️', 'Could not resolve redirect, using original URL', { url });
         return url;
