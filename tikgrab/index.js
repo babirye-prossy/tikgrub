@@ -1,5 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 
 const app = express();
 app.use(express.json());
@@ -15,7 +17,50 @@ const log = (emoji, label, data) => {
     console.log(`[${time}] ${emoji} ${label}`, data !== undefined ? JSON.stringify(data) : '');
 };
 
-// ✅ Resolves short URLs and strips tracking query params
+// ✅ HTTP server + WebSocket server sharing the same port
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
+// ✅ Track connected clients per tiktokUrl
+const clients = {};
+
+wss.on('connection', (ws, req) => {
+    const urlParam = new URL(req.url, `http://localhost`).searchParams.get('url');
+    log('🔌', 'WebSocket connected', { url: urlParam });
+
+    if (!urlParam) {
+        ws.close(1008, 'Missing url param');
+        return;
+    }
+
+    if (!clients[urlParam]) clients[urlParam] = new Set();
+    clients[urlParam].add(ws);
+
+    ws.on('close', () => {
+        log('🔌', 'WebSocket disconnected', { url: urlParam });
+        clients[urlParam]?.delete(ws);
+        if (clients[urlParam]?.size === 0) delete clients[urlParam];
+    });
+
+    ws.on('error', (err) => {
+        log('❌', 'WebSocket error', { error: err.message });
+    });
+});
+
+// ✅ Broadcast to all clients watching a url
+function broadcast(tiktokUrl, payload) {
+    const connected = clients[tiktokUrl];
+    if (!connected || connected.size === 0) return;
+    const message = JSON.stringify(payload);
+    connected.forEach(ws => {
+        if (ws.readyState === 1) ws.send(message);
+    });
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function resolveRedirect(url) {
     try {
         const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
@@ -29,6 +74,62 @@ async function resolveRedirect(url) {
     }
 }
 
+// ✅ Background poller — watches Apify and broadcasts over WebSocket
+async function pollAndBroadcast(tiktokUrl, runId) {
+    let status = 'RUNNING';
+
+    while (status === 'RUNNING' || status === 'READY') {
+        await sleep(4000);
+        try {
+            const statusRes = await fetch(
+                `${APIFY_BASE}/actor-runs/${runId}?token=${APIFY_TOKEN}`
+            );
+            const statusJson = await statusRes.json();
+            status = statusJson.data.status;
+
+            log('📊', 'pollAndBroadcast status', { runId, status });
+
+            if (status === 'FAILED' || status === 'TIMED-OUT' || status === 'ABORTED') {
+                broadcast(tiktokUrl, { type: 'ERROR', message: `Apify run ${status}` });
+                return;
+            }
+
+            if (status === 'SUCCEEDED') {
+                const datasetRes = await fetch(
+                    `${APIFY_BASE}/actor-runs/${runId}/dataset/items?token=${APIFY_TOKEN}`
+                );
+                const items = await datasetRes.json();
+
+                if (items.length > 0) log('🔬', 'Sample raw item', items[0]);
+
+                const allComments = items
+                    .map(i => ({
+                        text: i.text,
+                        user: i.uniqueId || i.authorMeta?.name || i.author || 'anon'
+                    }))
+                    .filter(c => c.text);
+
+                log('💬', 'Broadcasting comments', { count: allComments.length });
+
+                // ✅ Broadcast all comments in one shot
+                broadcast(tiktokUrl, {
+                    type: 'COMMENTS',
+                    comments: allComments,
+                    progress: 100,
+                    total: allComments.length
+                });
+
+                broadcast(tiktokUrl, { type: 'DONE', total: allComments.length });
+                return;
+            }
+        } catch (err) {
+            log('❌', 'Error in pollAndBroadcast', { error: err.message });
+            broadcast(tiktokUrl, { type: 'ERROR', message: err.message });
+            return;
+        }
+    }
+}
+
 app.get('/', (req, res) => {
     res.send('TrendPulse API is running');
 });
@@ -38,12 +139,10 @@ app.post('/collect', async (req, res) => {
     const { tiktokUrl } = req.body;
     if (!tiktokUrl) return res.status(400).json({ error: 'URL required' });
 
-    // ✅ Resolve before anything else
     const resolvedUrl = await resolveRedirect(tiktokUrl);
     log('📥', 'POST /collect received', { original: tiktokUrl, resolved: resolvedUrl });
 
     try {
-        // ✅ Send resolvedUrl to Apify
         log('🚀', 'Triggering Apify scrape for', resolvedUrl);
         const runRes = await fetch(
             `${APIFY_BASE}/acts/clockworks~tiktok-comments-scraper/runs?token=${APIFY_TOKEN}`,
@@ -62,9 +161,12 @@ app.post('/collect', async (req, res) => {
         }
 
         log('✅', 'Apify run started', { runId });
-
-        // ✅ Cache by original URL so Android polling with original URL still works
         cache[tiktokUrl] = { runId, resolvedUrl, createdAt: Date.now() };
+
+        // ✅ Start background WebSocket broadcaster
+        broadcast(tiktokUrl, { type: 'SCRAPE_STARTED', runId });
+        pollAndBroadcast(tiktokUrl, runId);
+
         setTimeout(() => {
             log('🗑️', 'Cache expired for', tiktokUrl);
             delete cache[tiktokUrl];
@@ -77,7 +179,7 @@ app.post('/collect', async (req, res) => {
     }
 });
 
-// STEP 2: Fetch paginated comments
+// STEP 2: REST fallback — unchanged, still works for polling
 app.get('/comments', async (req, res) => {
     const { tiktokUrl } = req.query;
     const page = parseInt(req.query.page) || 1;
@@ -91,11 +193,9 @@ app.get('/comments', async (req, res) => {
     }
 
     const { runId, resolvedUrl } = cache[tiktokUrl];
-
     log('🔗', 'Using resolved URL for run', { resolvedUrl });
 
     try {
-        log('🔍', 'Checking Apify run status', { runId });
         const statusRes = await fetch(
             `${APIFY_BASE}/actor-runs/${runId}?token=${APIFY_TOKEN}`
         );
@@ -105,26 +205,20 @@ app.get('/comments', async (req, res) => {
         log('📊', 'Apify run status', { runId, status });
 
         if (status === 'READY' || status === 'RUNNING') {
-            log('⏳', 'Run still in progress, telling client to retry');
             return res.json({ comments: [], stage: 'collecting', progress: 0, eta: 30 });
         }
 
         if (status === 'FAILED' || status === 'TIMED-OUT' || status === 'ABORTED') {
-            log('❌', 'Apify run failed', { status });
             return res.status(500).json({ error: `Apify run ${status}` });
         }
 
-        log('✅', 'Apify run SUCCEEDED, fetching dataset', { runId });
         const datasetRes = await fetch(
             `${APIFY_BASE}/actor-runs/${runId}/dataset/items?token=${APIFY_TOKEN}`
         );
         const items = await datasetRes.json();
 
         log('📦', 'Dataset fetched', { totalItems: items.length });
-
-        if (items.length > 0) {
-            log('🔬', 'Sample raw item', items[0]);
-        }
+        if (items.length > 0) log('🔬', 'Sample raw item', items[0]);
 
         const allComments = items
             .map(i => ({
@@ -132,8 +226,6 @@ app.get('/comments', async (req, res) => {
                 user: i.uniqueId || i.authorMeta?.name || i.author || 'anon'
             }))
             .filter(c => c.text);
-
-        log('💬', 'Comments after filtering', { count: allComments.length });
 
         const start = (page - 1) * limit;
         const end = start + limit;
@@ -144,12 +236,7 @@ app.get('/comments', async (req, res) => {
 
         log('📤', 'Sending response', { page, returning: pagedComments.length, progress, total: allComments.length });
 
-        res.json({
-            comments: pagedComments,
-            stage: 'done',
-            progress,
-            eta: eta > 0 ? eta : 0,
-        });
+        res.json({ comments: pagedComments, stage: 'done', progress, eta: eta > 0 ? eta : 0 });
 
     } catch (err) {
         log('❌', 'Error in /comments', { error: err.message });
@@ -157,4 +244,5 @@ app.get('/comments', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => log('🟢', `Server running on port ${PORT}`));
+// ✅ server.listen instead of app.listen so WebSocket shares the same port
+server.listen(PORT, () => log('🟢', `Server running on port ${PORT}`));
