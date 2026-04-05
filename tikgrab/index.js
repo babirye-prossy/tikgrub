@@ -10,21 +10,15 @@ const APIFY_BASE = 'https://api.apify.com/v2';
 const cache = {};
 const CACHE_TIMEOUT = 5 * 60 * 1000;
 
-// ✅ Simple logger helper
 const log = (emoji, label, data) => {
     const time = new Date().toISOString();
     console.log(`[${time}] ${emoji} ${label}`, data !== undefined ? JSON.stringify(data) : '');
 };
 
-app.get('/', (req, res) => {
-    res.send('TrendPulse API is running');
-});
-
-// Add this helper above your routes
+// ✅ Resolves short URLs and strips tracking query params
 async function resolveRedirect(url) {
     try {
         const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
-        // ✅ Strip query params — Apify only needs the clean video URL
         const clean = new URL(res.url);
         clean.search = '';
         log('🔗', 'Resolved URL', { from: url, to: clean.toString() });
@@ -35,23 +29,27 @@ async function resolveRedirect(url) {
     }
 }
 
+app.get('/', (req, res) => {
+    res.send('TrendPulse API is running');
+});
+
 // STEP 1: Trigger scraping
 app.post('/collect', async (req, res) => {
     const { tiktokUrl } = req.body;
     if (!tiktokUrl) return res.status(400).json({ error: 'URL required' });
 
-    // ✅ Resolve short URL to full URL before passing to Apify
+    // ✅ Resolve before anything else
     const resolvedUrl = await resolveRedirect(tiktokUrl);
     log('📥', 'POST /collect received', { original: tiktokUrl, resolved: resolvedUrl });
 
     try {
-        log('🚀', 'Triggering Apify scrape for', tiktokUrl);
+        // ✅ Send resolvedUrl to Apify
+        log('🚀', 'Triggering Apify scrape for', resolvedUrl);
         const runRes = await fetch(
             `${APIFY_BASE}/acts/clockworks~tiktok-comments-scraper/runs?token=${APIFY_TOKEN}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                // ✅ Use resolved URL
                 body: JSON.stringify({ postURLs: [resolvedUrl], commentsPerPost: 100 }),
             }
         );
@@ -64,7 +62,9 @@ app.post('/collect', async (req, res) => {
         }
 
         log('✅', 'Apify run started', { runId });
-        cache[tiktokUrl] = { runId, createdAt: Date.now() };
+
+        // ✅ Cache by original URL so Android polling with original URL still works
+        cache[tiktokUrl] = { runId, resolvedUrl, createdAt: Date.now() };
         setTimeout(() => {
             log('🗑️', 'Cache expired for', tiktokUrl);
             delete cache[tiktokUrl];
@@ -80,8 +80,6 @@ app.post('/collect', async (req, res) => {
 // STEP 2: Fetch paginated comments
 app.get('/comments', async (req, res) => {
     const { tiktokUrl } = req.query;
-
-    // ✅ Parse page and limit as integers immediately — avoids string math bugs
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
 
@@ -92,7 +90,9 @@ app.get('/comments', async (req, res) => {
         return res.json({ comments: [], stage: 'waiting', progress: 0, eta: 0 });
     }
 
-    const { runId } = cache[tiktokUrl];
+    const { runId, resolvedUrl } = cache[tiktokUrl];
+
+    log('🔗', 'Using resolved URL for run', { resolvedUrl });
 
     try {
         log('🔍', 'Checking Apify run status', { runId });
@@ -122,8 +122,15 @@ app.get('/comments', async (req, res) => {
 
         log('📦', 'Dataset fetched', { totalItems: items.length });
 
+        if (items.length > 0) {
+            log('🔬', 'Sample raw item', items[0]);
+        }
+
         const allComments = items
-            .map(i => ({ text: i.text, user: i.uniqueId || 'anon' }))
+            .map(i => ({
+                text: i.text,
+                user: i.uniqueId || i.authorMeta?.name || i.author || 'anon'
+            }))
             .filter(c => c.text);
 
         log('💬', 'Comments after filtering', { count: allComments.length });
@@ -135,7 +142,7 @@ app.get('/comments', async (req, res) => {
         const remaining = allComments.length - end;
         const eta = Math.ceil((remaining / limit) * 5);
 
-        log('📤', 'Sending response', { page, returning: pagedComments.length, progress });
+        log('📤', 'Sending response', { page, returning: pagedComments.length, progress, total: allComments.length });
 
         res.json({
             comments: pagedComments,
