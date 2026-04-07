@@ -1,12 +1,11 @@
 import express from 'express';
-import cors from 'cors';
 import fetch from 'node-fetch';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 
 const app = express();
 const server = createServer(app);
-app.use(cors());
+
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
