@@ -79,7 +79,14 @@ const response = await fetch(jsonUrl, {
     }
 });
 
-    const data = await response.json();
+    const text = await response.text();
+    
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+        throw new Error('Reddit blocked request or returned HTML');
+    }
+    
+    const data = JSON.parse(text);
+    
     const commentsTree = data[1]?.data?.children || [];
 
     let extractedComments = [];
