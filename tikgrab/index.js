@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 
 const app = express();
-app.use(cors);
+app.use(cors());
 const server = createServer(app);
 
 app.use(express.json());
@@ -195,6 +195,6 @@ app.get('/comments', (req, res) => {
 });
 
 // ✅ server.listen instead of app.listen so WebSocket shares the same port
-server.listen(PORT, () => {
-    console.log(`🔥 Server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🔥 Server running on port ${PORT}`);
 });
