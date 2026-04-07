@@ -1,9 +1,11 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 
 const app = express();
+app.use(cors);
 const server = createServer(app);
 
 app.use(express.json());
