@@ -72,11 +72,12 @@ async function fetchRedditComments(url) {
 
     log('🌐', 'Fetching Reddit JSON', { jsonUrl });
 
-    const response = await fetch(jsonUrl, {
-        headers: {
-            'User-Agent': 'TrendPulseApp/1.0'
-        }
-    });
+const response = await fetch(jsonUrl, {
+    headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
+});
 
     const data = await response.json();
     const commentsTree = data[1]?.data?.children || [];
