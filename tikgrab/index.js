@@ -79,9 +79,12 @@ const response = await fetch(jsonUrl, {
     }
 });
 
-    const text = await response.text();
+    const texts = await response.text();
+
+    const text = texts.trim();
     
-    if (!text.startsWith('{') && !text.startsWith('[')) {
+    if (!text.startsWith('{') || !text.startsWith('[')) {
+        log('❌', 'Text error', { text });
         throw new Error('Reddit blocked request or returned HTML');
     }
     
