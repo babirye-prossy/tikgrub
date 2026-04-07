@@ -74,8 +74,10 @@ async function fetchRedditComments(url) {
 
 const response = await fetch(jsonUrl, {
     headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+        'Referer': 'https://www.reddit.com/',
+        'Origin': 'https://www.reddit.com'
     }
 });
 
