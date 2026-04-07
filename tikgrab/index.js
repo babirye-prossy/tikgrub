@@ -65,32 +65,37 @@ function sleep(ms) {
 
 // 🔥 Reddit scraper
 async function fetchRedditComments(url) {
-    const cleanUrl = url.split('?')[0];
-    const jsonUrl = cleanUrl.endsWith('/')
-        ? cleanUrl + '.json'
-        : cleanUrl + '/.json';
+    // const cleanUrl = url.split('?')[0];
+    // const jsonUrl = cleanUrl.endsWith('/')
+    //     ? cleanUrl + '.json'
+    //     : cleanUrl + '/.json';
 
-    log('🌐', 'Fetching Reddit JSON', { jsonUrl });
+    // log('🌐', 'Fetching Reddit JSON', { jsonUrl });
 
-const response = await fetch(jsonUrl, {
-    headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json',
-        'Referer': 'https://www.reddit.com/',
-        'Origin': 'https://www.reddit.com'
-    }
-});
+    // const response = await fetch(jsonUrl, {
+    //     headers: {
+    //         'User-Agent': 'Mozilla/5.0',
+    //         'Accept': 'application/json',
+    //         'Referer': 'https://www.reddit.com/',
+    //         'Origin': 'https://www.reddit.com'
+    //     }
+    // });
 
-    const texts = await response.text();
+    // const texts = await response.text();
 
-    const text = texts.trim();
+    // const text = texts.trim();
     
-    if (!text.startsWith('{') || !text.startsWith('[')) {
-        log('❌', 'Text error', { text });
-        throw new Error('Reddit blocked request or returned HTML');
-    }
+    // if (!text.startsWith('{') || !text.startsWith('[')) {
+    //     log('❌', 'Text error', { text });
+    //     throw new Error('Reddit blocked request or returned HTML');
+    // }   
     
-    const data = JSON.parse(text);
+    // const data = JSON.parse(text);
+
+    log('🧪', 'Using mock JSON instead of Reddit API');
+
+    const file = await fs.readFile('./comments.json', 'utf-8');
+    const data = JSON.parse(file);
     
     const commentsTree = data[1]?.data?.children || [];
 
